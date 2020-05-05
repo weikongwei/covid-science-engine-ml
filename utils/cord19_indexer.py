@@ -14,30 +14,33 @@ class CORD19_indexer:
         Location to save the dataset
 
     filters: TODO
-    
     '''
     def __init__(self, data_path, filters=None):
         self.data_path = data_path
         self.metadata = self.load_metadata()
-        self.indexes = {}
-        self._load_jsons_into_memoery(filters)
-
+        self.paper_paths = self._filter_paper_paths(filters)
+        
     def load_metadata(self):
         metadata_path = os.path.join(self.data_path, "metadata.csv")
         assert os.path.exists(metadata_path), "metadata.csv does not exist in {}".format(self.data_path)
         return pd.read_csv(metadata_path)
 
-    def _load_jsons_into_memoery(self, filters):
-        print("Loading data into memory")
+    def _filter_paper_paths(self, filters):
+        print("Filtering papers")
         glob_path = os.path.join(self.data_path, "**/*.json")
+        if filters == None:
+            return glob.glob(glob_path, recursive=True)
+
+        output_paths = []
+        # Make the filtering processing multithreaded
         for index_file in tqdm.tqdm(glob.glob(glob_path, recursive=True)):
             with open(index_file, "r") as f:
                 index = json.load(f)
                 metadata = self.match_metadata(index)
                 
-                # TODO: include filters here
-                paper_id = index["paper_id"]
-                self.indexes[paper_id] = {"metadata": metadata, "index": index}
+            # TODO: include filters based on metadata here
+            output_paths.append(index_file)
+        return output_paths
                 
     def match_metadata(self, index):
         paper_id = index["paper_id"]
@@ -51,14 +54,19 @@ class CORD19_indexer:
                 return metadata.iloc[0].to_dict()
 
         # Last resort, search through sha column
-        for index, value in self.metadata["sha"].iteritems():
+        for _, value in self.metadata["sha"].iteritems():
             if isinstance(value, str): # Check if value is nan
                 if paper_id in value:
                     return self.metadata.iloc[index].to_dict()
 
     def __len__(self):
-        return len(self.indexes)
+        return len(self.paper_paths)
 
     def __getitem__(self, index):
-        key = list(self.indexes)[index]
-        return self.indexes[key]
+        index_file = self.paper_paths[index]
+        with open(index_file, "r") as f:
+            index = json.load(f)
+            metadata = self.match_metadata(index)
+
+        output = {"metadata": metadata, "index": index}
+        return output
